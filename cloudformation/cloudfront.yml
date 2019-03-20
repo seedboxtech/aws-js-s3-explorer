@@ -1,0 +1,61 @@
+AWSTemplateFormatVersion: '2010-09-09'
+Description: 'Sample CloudFront distribution properly configured for the S3 explorer.'
+
+Parameters:
+
+  BucketDomainName:
+    Description: 'The domain name of the S3 bucket origin for the CloudFront distribution.'
+    Type: 'String'
+    AllowedPattern: '^|([a-z0-9]|[a-z0-9][a-z0-9\-]{0,61}[a-z0-9])(\.([a-z0-9]|[a-z0-9][a-z0-9\-]{0,61}[a-z0-9]))+$'
+
+Resources:
+
+  CloudFrontOriginAccessIdentity:
+    Type: 'AWS::CloudFront::CloudFrontOriginAccessIdentity'
+    Properties:
+      CloudFrontOriginAccessIdentityConfig:
+        Comment: !Sub '${AWS::StackName}'
+
+  CloudFrontDistribution:
+    Type: 'AWS::CloudFront::Distribution'
+    DependsOn:
+      - 'CloudFrontOriginAccessIdentity'
+    DeletionPolicy: 'Delete'
+    Properties:
+      DistributionConfig:
+        Comment: !Sub '${AWS::StackName}'
+        Origins:
+          - DomainName: !Sub '${BucketDomainName}'
+            Id: !Sub '${AWS::StackName}'
+            S3OriginConfig:
+              OriginAccessIdentity: !Sub 'origin-access-identity/cloudfront/${CloudFrontOriginAccessIdentity}'
+        Enabled: 'true'
+        HttpVersion: 'http2'
+        IPV6Enabled: 'false'
+        DefaultCacheBehavior:
+          AllowedMethods:
+            - 'GET'
+            - 'HEAD'
+            - 'OPTIONS'
+          DefaultTTL: 31536000
+          MaxTTL: 31536000
+          MinTTL: 31536000
+          TargetOriginId: !Sub '${AWS::StackName}'
+          ForwardedValues:
+            QueryString: 'true'
+            Cookies:
+              Forward: 'none'
+          ViewerProtocolPolicy: 'allow-all'
+        PriceClass: 'PriceClass_100'
+        ViewerCertificate:
+          CloudFrontDefaultCertificate: 'true'
+
+Outputs:
+
+  CloudFrontDistributionId:
+    Description: 'The ID of the CloudFront distribution.'
+    Value: !Sub '${CloudFrontDistribution}'
+
+  CloudFrontDistributionDomainName:
+    Description: 'The domain name of the CloudFront distribution.'
+    Value: !Sub '${CloudFrontDistribution.DomainName}'

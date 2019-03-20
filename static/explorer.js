@@ -13,6 +13,7 @@
 // permissions and limitations under the License.
 
 var s3explorer_columns = { check:0, object:1, folder:2, date:3, timestamp:4, storageclass:5, size:6 };
+var salt = 'f22816b9886df83e33768902500343ef';
 
 // Cache frequently-used selectors and data table
 var $tb = $('#s3objects-table');
@@ -103,6 +104,19 @@ app.factory('SharedService', function($rootScope) {
 
     shared.getViewPrefix = function() {
         return this.viewprefix || this.settings.prefix;
+    };
+
+    shared.getDownloadUrl = function(key, size) {
+        var downloadUrl;
+
+        //if (size < 21474836480) {
+        if (size < 5242880) {
+            downloadUrl = stripLeadTrailSlash(this.settings.download_url);
+        } else {
+            downloadUrl = 'https://' + this.settings.bucket + '.s3.amazonaws.com';
+        }
+
+        return downloadUrl + '/' + stripLeadTrailSlash(key).split('/').map(function(x) { return encodeURIComponent(x); }).join('/');
     };
 
     shared.viewRefresh = function() {
@@ -264,7 +278,8 @@ app.controller('ViewController', function($scope, SharedService) {
             }
         } else {
             // DEBUG.log("not folder: " + data);
-            return '<a data-s3="object" data-s3key="' + data + '" href="' + object2hrefvirt($scope.view.settings.bucket, data) + '"download="' + fullpath2filename(data) + '">' + fullpath2filename(data) + '</a>';
+            var downloadUrl = SharedService.getDownloadUrl(data, full.Size);
+            return '<a data-s3="object" data-s3key="' + data + '" href="' + downloadUrl + '" download="' + fullpath2filename(data) + '">' + fullpath2filename(data) + '</a>';
         }
     };
 
@@ -291,6 +306,67 @@ app.controller('ViewController', function($scope, SharedService) {
             $scope.folder2breadcrumbs($scope.view.settings.bucket, SharedService.getViewPrefix());
             $scope.listobjects($scope.view.settings.bucket, $scope.view.settings.prefix, $scope.view.settings.delimiter);
         }
+    };
+
+    $scope.selectAll = function() {
+        DEBUG.log('selectAll');
+
+        var $s3objectsTable = $('#s3objects-table');
+
+        var $allCheckboxes = $s3objectsTable.find('input[type="checkbox"]');
+
+        var $checkedCheckboxes = $s3objectsTable.find('input[type="checkbox"]:checked');
+
+        $allCheckboxes.prop('checked', $checkedCheckboxes.length !== $allCheckboxes.length);
+    };
+
+    $scope.downloadSelected = function() {
+        DEBUG.log('downloadSelected');
+
+        var $s3objectsTable = $('#s3objects-table');
+
+        var $checkedCheckboxes = $s3objectsTable.find('input[type="checkbox"]:checked');
+
+        $checkedCheckboxes.each(function (i, elem) {
+            var $anchor = $(elem).closest('tr').find('a[data-s3=object]');
+            var filename = $anchor.attr('download');
+
+            if ($scope.view.settings.auth === 'anon') {
+
+                var url = $anchor.attr('href')
+                    + '?response-content-disposition='
+                    + encodeURIComponent('attachment;filename=' + filename)
+                    + '&response-content-type='
+                    + encodeURIComponent('application=octet-stream');
+
+                DEBUG.log('Downloading: ' + url);
+
+                $("<iframe style='display: none' src='" + url + "'></iframe>").appendTo('body');
+
+            } else {
+
+                var s3 = new AWS.S3();
+                var params = {Bucket: $scope.view.settings.bucket, Key: $anchor.data('s3key'), Expires: 30};
+                DEBUG.log("params:", params);
+                s3.getSignedUrl('getObject', params, function (err, url) {
+                    if (err) {
+                        DEBUG.log("err:", err);
+                        showError([params, err]);
+                    } else {
+                        url = $anchor.attr('href')
+                            + '?'
+                            + url.split('?', 2).pop()
+                            + '&response-content-disposition='
+                            + encodeURIComponent('attachment;filename=' + filename)
+                            + '&response-content-type='
+                            + encodeURIComponent('application=octet-stream');
+
+                        DEBUG.log('Downloading: ' + url);
+                        $("<iframe style='display: none' src='" + url + "'></iframe>").appendTo('body');
+                    }
+                });
+            }
+        });
     };
 
     $scope.trash = function() {
@@ -710,12 +786,22 @@ app.controller('SettingsController', function($scope, SharedService) {
     DEBUG.log("SettingsController init");
     window.settingsScope = $scope; // for debugging
 
-    // Initialized for an unauthenticated user exploring the current bucket
-    // TODO: calculate current bucket and initialize below
-    $scope.settings = { auth: 'anon', region: '', bucket: '', entered_bucket: '', selected_bucket: '', view: 'folder', delimiter: '/', prefix: '' };
-    $scope.settings.mfa = { use: 'no', code: '' };
-    $scope.settings.cred = { accessKeyId: '', secretAccessKey: '', sessionToken: '' };
-    $scope.settings.stscred = null;
+    var settings = localStorage.getItem('settings');
+    DEBUG.log('Encrypted settings: ' + settings);
+
+    if (settings) {
+        var defaultDecipher = decipher(salt);
+        settings = defaultDecipher(settings);
+        DEBUG.log('Decrypted settings: ' + settings);
+        $scope.settings = JSON.parse(settings);
+    } else {
+        // Initialized for an unauthenticated user exploring the current bucket
+        // TODO: calculate current bucket and initialize below
+        $scope.settings = { auth: 'anon', region: '', bucket: '', entered_bucket: '', selected_bucket: '', view: 'folder', delimiter: '/', prefix: '' };
+        $scope.settings.mfa = { use: 'no', code: '' };
+        $scope.settings.cred = { accessKeyId: '', secretAccessKey: '', sessionToken: '' };
+        $scope.settings.stscred = null;
+    }
 
     // TODO: at present the Settings dialog closes after credentials have been supplied
     // even if the subsequent AWS calls fail with networking or permissions errors. It
@@ -742,6 +828,8 @@ app.controller('SettingsController', function($scope, SharedService) {
             $scope.settings.cred = { accessKeyId: null, secretAccessKey: null };
         }
 
+        var defaultCipher = cipher(salt);
+        localStorage.setItem('settings', defaultCipher(JSON.stringify($scope.settings)));
         SharedService.changeSettings($scope.settings);
     };
 });
@@ -1110,6 +1198,45 @@ function stripLeadTrailSlash(s) {
     while (s.startsWith('/')) s = s.substring(1);
     while (s.endsWith('/')) s = s.substring(0, s.length - 1);
     return s;
+}
+
+function cipher(salt) {
+    var textToChars = function (text) {
+        return text.split('').map(c => c.charCodeAt(0));
+    };
+    var byteHex = function (n) {
+        return ("0" + Number(n).toString(16)).substr(-2);
+    };
+    var applySaltToChar = function (code) {
+        return textToChars(salt).reduce((a,b) => a ^ b, code);
+    };
+
+    return function (text) {
+        return text.split('')
+            .map(textToChars)
+            .map(applySaltToChar)
+            .map(byteHex)
+            .join('');
+    };
+}
+
+function decipher(salt) {
+    var textToChars = function (text) {
+        return text.split('').map(c => c.charCodeAt(0));
+    };
+    var applySaltToChar = function (code) {
+        return textToChars(salt).reduce((a,b) => a ^ b, code);
+    };
+
+    return function (encoded) {
+        return encoded.match(/.{1,2}/g)
+            .map(hex => parseInt(hex, 16))
+            .map(applySaltToChar)
+            .map(function (charCode) {
+                return String.fromCharCode(charCode);
+            })
+            .join('');
+    };
 }
 
 function showError(objects) {
