@@ -16,6 +16,7 @@ Resources:
               - 'HEAD'
               - 'PUT'
               - 'POST'
+              - 'DELETE'
             AllowedHeaders:
               - '*'
             ExposedHeaders:
