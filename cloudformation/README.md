@@ -33,7 +33,8 @@ aws cloudformation deploy \
 
 # (Optional) Get the URL of the CloudFormation distribution:
 aws cloudformation describe-stacks \
-    --stack-name aws-js-s3-explorer  
+    --stack-name aws-js-s3-explorer
+
 ```
 
 Note: if you install the sample S3 bucket and CloudFront distribution using the above aws-cli commands, use the same AWS Access Key as your aws-cli when configuring the S3 explorer.
