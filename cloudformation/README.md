@@ -16,14 +16,16 @@ aws cloudformation deploy \
     --stack-name aws-js-s3-explorer-sample-bucket \
     --template-file bucket.yml \
     --no-fail-on-empty-changeset
+
+aws s3 sync ../test/content s3://aws-js-s3-explorer-sample-bucket --delete
 ```
 
 #### (Optional) Install a sample CloudFormation distribution to test the S3 explorer:
 ```sh
 aws cloudformation deploy \
-    --stack-name aws-js-s3-explorer \
+    --stack-name aws-js-s3-explorer-sample-cloudfront \
     --template-file cloudfront.yml \
     --no-fail-on-empty-changeset \
     --parameter-overrides \
-        BucketDomainName={YOUR_BUCKET_NAME_HERE}
+        OriginBucketName=aws-js-s3-explorer-sample-bucket
 ```

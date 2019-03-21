@@ -43,7 +43,3 @@ Outputs:
   BucketName:
     Description: 'The name of the S3 bucket.'
     Value: !Sub '${SampleBucket}'
-
-  BucketDomainName:
-    Description: 'The domain name of the S3 bucket.'
-    Value: !Sub '${SampleBucket.DomainName}'

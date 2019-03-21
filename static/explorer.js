@@ -14,6 +14,8 @@
 
 var s3explorer_columns = { check:0, object:1, folder:2, date:3, timestamp:4, storageclass:5, size:6 };
 var salt = 'f22816b9886df83e33768902500343ef';
+var cloudfront_max_byte_size = 21474836480;
+//var cloudfront_max_byte_size = 10;
 
 // Cache frequently-used selectors and data table
 var $tb = $('#s3objects-table');
@@ -106,17 +108,16 @@ app.factory('SharedService', function($rootScope) {
         return this.viewprefix || this.settings.prefix;
     };
 
-    shared.getDownloadUrl = function(key, size) {
-        var downloadUrl;
+    shared.getcloudfrontUrl = function(key, size) {
+        var cloudfrontUrl;
 
-        //if (size < 21474836480) {
-        if (size < 5242880) {
-            downloadUrl = stripLeadTrailSlash(this.settings.download_url);
+        if (this.settings.cloudfront_url && size < cloudfront_max_byte_size) {
+            cloudfrontUrl = stripLeadTrailSlash(this.settings.cloudfront_url);
         } else {
-            downloadUrl = 'https://' + this.settings.bucket + '.s3.amazonaws.com';
+            cloudfrontUrl = 'https://' + this.settings.bucket + '.s3.amazonaws.com';
         }
 
-        return downloadUrl + '/' + stripLeadTrailSlash(key).split('/').map(function(x) { return encodeURIComponent(x); }).join('/');
+        return cloudfrontUrl + '/' + stripLeadTrailSlash(key).split('/').map(function(x) { return encodeURIComponent(x); }).join('/');
     };
 
     shared.viewRefresh = function() {
@@ -278,8 +279,8 @@ app.controller('ViewController', function($scope, SharedService) {
             }
         } else {
             // DEBUG.log("not folder: " + data);
-            var downloadUrl = SharedService.getDownloadUrl(data, full.Size);
-            return '<a data-s3="object" data-s3key="' + data + '" href="' + downloadUrl + '" download="' + fullpath2filename(data) + '">' + fullpath2filename(data) + '</a>';
+            var cloudfrontUrl = SharedService.getcloudfrontUrl(data, full.Size);
+            return '<a data-s3="object" data-s3key="' + data + '" data-size="' + full.Size + '" href="' + cloudfrontUrl + '" download="' + fullpath2filename(data) + '">' + fullpath2filename(data) + '</a>';
         }
     };
 
@@ -330,42 +331,56 @@ app.controller('ViewController', function($scope, SharedService) {
         $checkedCheckboxes.each(function (i, elem) {
             var $anchor = $(elem).closest('tr').find('a[data-s3=object]');
             var filename = $anchor.attr('download');
+            var url;
 
             if ($scope.view.settings.auth === 'anon') {
 
-                var url = $anchor.attr('href')
+                // todo: test this
+                url = $anchor.attr('href')
                     + '?response-content-disposition='
                     + encodeURIComponent('attachment;filename=' + filename)
                     + '&response-content-type='
                     + encodeURIComponent('application=octet-stream');
 
-                DEBUG.log('Downloading: ' + url);
-
-                $("<iframe style='display: none' src='" + url + "'></iframe>").appendTo('body');
-
             } else {
 
-                var s3 = new AWS.S3();
-                var params = {Bucket: $scope.view.settings.bucket, Key: $anchor.data('s3key'), Expires: 30};
-                DEBUG.log("params:", params);
-                s3.getSignedUrl('getObject', params, function (err, url) {
-                    if (err) {
-                        DEBUG.log("err:", err);
-                        showError([params, err]);
-                    } else {
-                        url = $anchor.attr('href')
-                            + '?'
-                            + url.split('?', 2).pop()
-                            + '&response-content-disposition='
+                if ($scope.view.settings.cloudfront_url && $anchor.data('size') < cloudfront_max_byte_size) {
+                    // download through cloudfront if possible
+
+                    url = $anchor.attr('href')
+                        + '?response-content-disposition='
+                        + encodeURIComponent('attachment;filename=' + filename)
+                        + '&response-content-type='
+                        + encodeURIComponent('application=octet-stream');
+                } else {
+                    // download through s3
+
+                    var s3 = new AWS.S3({signatureVersion: 'v4'});
+                    var params = {
+                        Bucket: $scope.view.settings.bucket,
+                        Key: $anchor.data('s3key')
+                    };
+
+                    //DEBUG.log("params:", params);
+
+                    var req = s3.getObject(params);
+
+                    req.on('build', function() {
+                        //DEBUG.log('s3.getObject.httpRequest: ', req.httpRequest);
+                        req.httpRequest.path += '?'
+                            + 'response-content-disposition='
                             + encodeURIComponent('attachment;filename=' + filename)
                             + '&response-content-type='
                             + encodeURIComponent('application=octet-stream');
+                    });
 
-                        DEBUG.log('Downloading: ' + url);
-                        $("<iframe style='display: none' src='" + url + "'></iframe>").appendTo('body');
-                    }
-                });
+                    url = req.presign(15);
+                }
             }
+
+            DEBUG.log('Downloading: ' + url);
+
+            $("<iframe style='display: none' src='" + url + "'></iframe>").appendTo('body');
         });
     };
 

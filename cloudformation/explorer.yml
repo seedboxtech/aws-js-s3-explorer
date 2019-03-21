@@ -35,10 +35,6 @@ Outputs:
     Description: 'The name of the S3 bucket.'
     Value: !Sub '${WebsiteBucket}'
 
-  BucketDomainName:
-    Description: 'The domain name of the S3 bucket.'
-    Value: !Sub '${WebsiteBucket.DomainName}'
-
   BucketWebsiteURL:
     Description: 'The website URL of the S3 bucket.'
     Value: !Sub '${WebsiteBucket.WebsiteURL}'

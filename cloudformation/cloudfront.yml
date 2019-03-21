@@ -3,10 +3,11 @@ Description: 'Sample CloudFront distribution properly configured for the S3 expl
 
 Parameters:
 
-  BucketDomainName:
-    Description: 'The domain name of the S3 bucket origin for the CloudFront distribution.'
+  OriginBucketName:
+    Description: 'The name of the S3 bucket origin for the CloudFront distribution.'
     Type: 'String'
-    AllowedPattern: '^|([a-z0-9]|[a-z0-9][a-z0-9\-]{0,61}[a-z0-9])(\.([a-z0-9]|[a-z0-9][a-z0-9\-]{0,61}[a-z0-9]))+$'
+    AllowedPattern:
+      '(?=^.{3,63}$)(?!^(\d+\.)+\d+$)(^(([a-z0-9]|[a-z0-9][a-z0-9\-]*[a-z0-9])\.)*([a-z0-9]|[a-z0-9][a-z0-9\-]*[a-z0-9])$)'
 
 Resources:
 
@@ -25,7 +26,7 @@ Resources:
       DistributionConfig:
         Comment: !Sub '${AWS::StackName}'
         Origins:
-          - DomainName: !Sub '${BucketDomainName}'
+          - DomainName: !Sub '${OriginBucketName}.s3.${AWS::URLSuffix}'
             Id: !Sub '${AWS::StackName}'
             S3OriginConfig:
               OriginAccessIdentity: !Sub 'origin-access-identity/cloudfront/${CloudFrontOriginAccessIdentity}'
