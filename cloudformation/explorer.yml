@@ -1,0 +1,40 @@
+AWSTemplateFormatVersion: '2010-09-09'
+Description: 'Static website S3 bucket for the S3 explorer.'
+
+Resources:
+
+  WebsiteBucket:
+    Type: 'AWS::S3::Bucket'
+    Properties:
+      BucketName: !Sub '${AWS::StackName}'
+      WebsiteConfiguration:
+        IndexDocument: 'index.html'
+        RoutingRules:
+          - RoutingRuleCondition:
+              HttpErrorCodeReturnedEquals: 404
+            RedirectRule:
+              HttpRedirectCode: 301
+              ReplaceKeyWith: ''
+
+  WebsiteBucketPolicy:
+    Type: 'AWS::S3::BucketPolicy'
+    Properties:
+      Bucket: !Sub '${AWS::StackName}'
+      PolicyDocument:
+        Statement:
+          - Effect: 'Allow'
+            Principal: '*'
+            Action:
+              - 's3:GetObject'
+            Resource:
+              - !Sub '${WebsiteBucket.Arn}/*'
+
+Outputs:
+
+  BucketName:
+    Description: 'The name of the S3 bucket.'
+    Value: !Sub '${WebsiteBucket}'
+
+  BucketWebsiteURL:
+    Description: 'The website URL of the S3 bucket.'
+    Value: !Sub '${WebsiteBucket.WebsiteURL}'

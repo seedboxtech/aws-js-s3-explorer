@@ -13,6 +13,9 @@
 // permissions and limitations under the License.
 
 var s3explorer_columns = { check:0, object:1, folder:2, date:3, timestamp:4, storageclass:5, size:6 };
+var salt = 'f22816b9886df83e33768902500343ef';
+var cloudfront_max_byte_size = 21474836480;
+//var cloudfront_max_byte_size = 10;
 
 // Cache frequently-used selectors and data table
 var $tb = $('#s3objects-table');
@@ -103,6 +106,18 @@ app.factory('SharedService', function($rootScope) {
 
     shared.getViewPrefix = function() {
         return this.viewprefix || this.settings.prefix;
+    };
+
+    shared.getcloudfrontUrl = function(key, size) {
+        var cloudfrontUrl;
+
+        if (this.settings.cloudfront_url && size < cloudfront_max_byte_size) {
+            cloudfrontUrl = stripLeadTrailSlash(this.settings.cloudfront_url);
+        } else {
+            cloudfrontUrl = 'https://' + this.settings.bucket + '.s3.amazonaws.com';
+        }
+
+        return cloudfrontUrl + '/' + stripLeadTrailSlash(key).split('/').map(function(x) { return encodeURIComponent(x); }).join('/');
     };
 
     shared.viewRefresh = function() {
@@ -264,7 +279,8 @@ app.controller('ViewController', function($scope, SharedService) {
             }
         } else {
             // DEBUG.log("not folder: " + data);
-            return '<a data-s3="object" data-s3key="' + data + '" href="' + object2hrefvirt($scope.view.settings.bucket, data) + '"download="' + fullpath2filename(data) + '">' + fullpath2filename(data) + '</a>';
+            var cloudfrontUrl = SharedService.getcloudfrontUrl(data, full.Size);
+            return '<a data-s3="object" data-s3key="' + data + '" data-size="' + full.Size + '" href="' + cloudfrontUrl + '" download="' + fullpath2filename(data) + '">' + fullpath2filename(data) + '</a>';
         }
     };
 
@@ -291,6 +307,81 @@ app.controller('ViewController', function($scope, SharedService) {
             $scope.folder2breadcrumbs($scope.view.settings.bucket, SharedService.getViewPrefix());
             $scope.listobjects($scope.view.settings.bucket, $scope.view.settings.prefix, $scope.view.settings.delimiter);
         }
+    };
+
+    $scope.selectAll = function() {
+        DEBUG.log('selectAll');
+
+        var $s3objectsTable = $('#s3objects-table');
+
+        var $allCheckboxes = $s3objectsTable.find('input[type="checkbox"]');
+
+        var $checkedCheckboxes = $s3objectsTable.find('input[type="checkbox"]:checked');
+
+        $allCheckboxes.prop('checked', $checkedCheckboxes.length !== $allCheckboxes.length);
+    };
+
+    $scope.downloadSelected = function() {
+        DEBUG.log('downloadSelected');
+
+        var $s3objectsTable = $('#s3objects-table');
+
+        var $checkedCheckboxes = $s3objectsTable.find('input[type="checkbox"]:checked');
+
+        $checkedCheckboxes.each(function (i, elem) {
+            var $anchor = $(elem).closest('tr').find('a[data-s3=object]');
+            var filename = $anchor.attr('download');
+            var url;
+
+            if ($scope.view.settings.auth === 'anon') {
+
+                // todo: test this
+                url = $anchor.attr('href')
+                    + '?response-content-disposition='
+                    + encodeURIComponent('attachment;filename=' + filename)
+                    + '&response-content-type='
+                    + encodeURIComponent('application=octet-stream');
+
+            } else {
+
+                if ($scope.view.settings.cloudfront_url && $anchor.data('size') < cloudfront_max_byte_size) {
+                    // download through cloudfront if possible
+
+                    url = $anchor.attr('href')
+                        + '?response-content-disposition='
+                        + encodeURIComponent('attachment;filename=' + filename)
+                        + '&response-content-type='
+                        + encodeURIComponent('application=octet-stream');
+                } else {
+                    // download through s3
+
+                    var s3 = new AWS.S3({signatureVersion: 'v4'});
+                    var params = {
+                        Bucket: $scope.view.settings.bucket,
+                        Key: $anchor.data('s3key')
+                    };
+
+                    //DEBUG.log("params:", params);
+
+                    var req = s3.getObject(params);
+
+                    req.on('build', function() {
+                        //DEBUG.log('s3.getObject.httpRequest: ', req.httpRequest);
+                        req.httpRequest.path += '?'
+                            + 'response-content-disposition='
+                            + encodeURIComponent('attachment;filename=' + filename)
+                            + '&response-content-type='
+                            + encodeURIComponent('application=octet-stream');
+                    });
+
+                    url = req.presign(15);
+                }
+            }
+
+            DEBUG.log('Downloading: ' + url);
+
+            $("<iframe style='display: none' src='" + url + "'></iframe>").appendTo('body');
+        });
     };
 
     $scope.trash = function() {
@@ -710,12 +801,22 @@ app.controller('SettingsController', function($scope, SharedService) {
     DEBUG.log("SettingsController init");
     window.settingsScope = $scope; // for debugging
 
-    // Initialized for an unauthenticated user exploring the current bucket
-    // TODO: calculate current bucket and initialize below
-    $scope.settings = { auth: 'anon', region: '', bucket: '', entered_bucket: '', selected_bucket: '', view: 'folder', delimiter: '/', prefix: '' };
-    $scope.settings.mfa = { use: 'no', code: '' };
-    $scope.settings.cred = { accessKeyId: '', secretAccessKey: '', sessionToken: '' };
-    $scope.settings.stscred = null;
+    var settings = localStorage.getItem('settings');
+    DEBUG.log('Encrypted settings: ' + settings);
+
+    if (settings) {
+        var defaultDecipher = decipher(salt);
+        settings = defaultDecipher(settings);
+        DEBUG.log('Decrypted settings: ' + settings);
+        $scope.settings = JSON.parse(settings);
+    } else {
+        // Initialized for an unauthenticated user exploring the current bucket
+        // TODO: calculate current bucket and initialize below
+        $scope.settings = { auth: 'anon', region: '', bucket: '', entered_bucket: '', selected_bucket: '', view: 'folder', delimiter: '/', prefix: '' };
+        $scope.settings.mfa = { use: 'no', code: '' };
+        $scope.settings.cred = { accessKeyId: '', secretAccessKey: '', sessionToken: '' };
+        $scope.settings.stscred = null;
+    }
 
     // TODO: at present the Settings dialog closes after credentials have been supplied
     // even if the subsequent AWS calls fail with networking or permissions errors. It
@@ -742,6 +843,8 @@ app.controller('SettingsController', function($scope, SharedService) {
             $scope.settings.cred = { accessKeyId: null, secretAccessKey: null };
         }
 
+        var defaultCipher = cipher(salt);
+        localStorage.setItem('settings', defaultCipher(JSON.stringify($scope.settings)));
         SharedService.changeSettings($scope.settings);
     };
 });
@@ -1110,6 +1213,45 @@ function stripLeadTrailSlash(s) {
     while (s.startsWith('/')) s = s.substring(1);
     while (s.endsWith('/')) s = s.substring(0, s.length - 1);
     return s;
+}
+
+function cipher(salt) {
+    var textToChars = function (text) {
+        return text.split('').map(c => c.charCodeAt(0));
+    };
+    var byteHex = function (n) {
+        return ("0" + Number(n).toString(16)).substr(-2);
+    };
+    var applySaltToChar = function (code) {
+        return textToChars(salt).reduce((a,b) => a ^ b, code);
+    };
+
+    return function (text) {
+        return text.split('')
+            .map(textToChars)
+            .map(applySaltToChar)
+            .map(byteHex)
+            .join('');
+    };
+}
+
+function decipher(salt) {
+    var textToChars = function (text) {
+        return text.split('').map(c => c.charCodeAt(0));
+    };
+    var applySaltToChar = function (code) {
+        return textToChars(salt).reduce((a,b) => a ^ b, code);
+    };
+
+    return function (encoded) {
+        return encoded.match(/.{1,2}/g)
+            .map(hex => parseInt(hex, 16))
+            .map(applySaltToChar)
+            .map(function (charCode) {
+                return String.fromCharCode(charCode);
+            })
+            .join('');
+    };
 }
 
 function showError(objects) {

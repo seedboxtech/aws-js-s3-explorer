@@ -1,0 +1,46 @@
+AWSTemplateFormatVersion: '2010-09-09'
+Description: 'Sample S3 bucket properly configured for the S3 explorer.'
+
+Resources:
+
+  SampleBucket:
+    Type: 'AWS::S3::Bucket'
+    Properties:
+      BucketName: !Sub '${AWS::StackName}'
+      CorsConfiguration:
+        CorsRules:
+          - AllowedOrigins:
+              - '*'
+            AllowedMethods:
+              - 'GET'
+              - 'HEAD'
+              - 'PUT'
+              - 'POST'
+              - 'DELETE'
+            AllowedHeaders:
+              - '*'
+            ExposedHeaders:
+              - 'ETag'
+              - 'x-amz-meta-custom-header'
+            MaxAge: 3000
+
+  SampleBucketPolicy:
+    Type: 'AWS::S3::BucketPolicy'
+    Properties:
+      Bucket: !Sub '${AWS::StackName}'
+      PolicyDocument:
+        Statement:
+          - Effect: 'Allow'
+            Principal: '*'
+            Action:
+              - 's3:List*'
+              - 's3:Get*'
+            Resource:
+              - !Sub '${SampleBucket.Arn}'
+              - !Sub '${SampleBucket.Arn}/*'
+
+Outputs:
+
+  BucketName:
+    Description: 'The name of the S3 bucket.'
+    Value: !Sub '${SampleBucket}'
