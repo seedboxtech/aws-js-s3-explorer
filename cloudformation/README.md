@@ -33,7 +33,7 @@ aws cloudformation deploy \
 
 # (Optional) Get the URL of the CloudFormation distribution:
 aws cloudformation describe-stacks \
-    --stack-name aws-js-s3-explorer
+    --stack-name aws-js-s3-explorer-sample-cloudfront
   
 ```
 
