@@ -193,18 +193,29 @@ app.controller('ViewController', function($scope, SharedService) {
             if ($scope.view.settings.auth === 'anon') {
                 window.open(target.href, '_blank');
             } else {
-                var s3 = new AWS.S3();
-                var params = {Bucket: $scope.view.settings.bucket, Key: target.dataset.s3key, Expires: 15};
-                DEBUG.log("params:", params);
-                s3.getSignedUrl('getObject', params, function (err, url) {
-                    if (err) {
-                        DEBUG.log("err:", err);
-                        showError([params, err]);
-                    } else {
-                        DEBUG.log("url:", url);
-                        window.open(url, '_blank');
-                    }
-                });
+
+                if ($scope.view.settings.cloudfront_url && target.dataset.size < cloudfront_max_byte_size) {
+                    // download through cloudfront if possible
+
+                    DEBUG.log("url:", target.href);
+                    window.open(target.href, '_blank');
+
+                } else {
+                    // download through s3
+
+                    var s3 = new AWS.S3();
+                    var params = {Bucket: $scope.view.settings.bucket, Key: target.dataset.s3key, Expires: 15};
+                    DEBUG.log("params:", params);
+                    s3.getSignedUrl('getObject', params, function (err, url) {
+                        if (err) {
+                            DEBUG.log("err:", err);
+                            showError([params, err]);
+                        } else {
+                            DEBUG.log("url:", url);
+                            window.open(url, '_blank');
+                        }
+                    });
+                }
             }
         }
         return false;
